@@ -108,7 +108,7 @@ def guardar_historial():
 
 # ---------- Barra lateral tipo Gemini ----------
 with st.sidebar:
-    st.markdown("### ✨ Mi IA")
+    st.markdown("### Estuardo Meza Sabe todo pregunta lo que quiera.....")
     st.button(
         "➕ Nueva conversación",
         use_container_width=True,
@@ -158,7 +158,7 @@ for i, message in enumerate(chat["messages"]):
                 key=f"descarga_{st.session_state.chat_actual}_{i}",
             )
 
-if prompt := st.chat_input("Escribe el mensaje que deseas enviar"):
+if prompt := st.chat_input("Escribe el mensaje que deseas preguntar"):
     with st.chat_message("user"):
         st.markdown(prompt)
     chat["messages"].append({"role": "user", "content": prompt})
