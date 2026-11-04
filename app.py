@@ -6,7 +6,7 @@ import streamlit as st
 from google import genai
 from streamlit_js_eval import streamlit_js_eval
 
-st.set_page_config(page_title="Mi primera IA app", page_icon="✨", layout="wide")
+st.set_page_config(page_title="Mi primera IA app", page_icon="", layout="wide")
 
 LS_KEY = "mi_ia_chats_v1"  # nombre con el que se guarda en el navegador
 
@@ -108,7 +108,7 @@ def guardar_historial():
 
 # ---------- Barra lateral tipo Gemini ----------
 with st.sidebar:
-    st.markdown("### Estuardo Meza Sabe todo pregunta lo que quiera.....")
+    st.markdown("### Lo que platicaste conmigo...")
     st.button(
         "➕ Nueva conversación",
         use_container_width=True,
@@ -145,7 +145,7 @@ with st.sidebar:
 # ---------- Conversación actual ----------
 chat = st.session_state.chats[st.session_state.chat_actual]
 
-st.title("Mi primera IA app")
+st.title("Estuardo Meza Sabe todo pregunta lo que quieras.....")
 
 for i, message in enumerate(chat["messages"]):
     with st.chat_message(message["role"]):
