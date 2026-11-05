@@ -1,194 +1,237 @@
-import hashlib
-import json
-import uuid
+import os
+from datetime import datetime
 
 import streamlit as st
-from google import genai
-from streamlit_js_eval import streamlit_js_eval
 
-st.set_page_config(page_title="Mi primera IA app", page_icon="", layout="wide")
+st.set_page_config(page_title="Estuardo Meza Sabe todo", page_icon="🤖", layout="centered")
 
-LS_KEY = "mi_ia_chats_v1"  # nombre con el que se guarda en el navegador
+# ---------------------------------------------------------------------------
+# Configuración de proveedores
+# ---------------------------------------------------------------------------
+PROVEEDORES = {
+    "Gemini (Google)": {
+        "modelos": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
+        "env": "GEMINI_API_KEY",
+        "secret": "GEMINI_API_KEY",
+    },
+    "OpenAI (ChatGPT)": {
+        "modelos": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
+        "env": "OPENAI_API_KEY",
+        "secret": "OPENAI_API_KEY",
+    },
+    "Anthropic (Claude)": {
+        "modelos": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
+        "env": "ANTHROPIC_API_KEY",
+        "secret": "ANTHROPIC_API_KEY",
+    },
+}
+
+SYSTEM_POR_DEFECTO = (
+    "Eres un asistente amable para estudiantes de informática. "
+    "Responde siempre en español, de forma clara y con ejemplos cuando ayuden."
+)
 
 
-# ---------- Configuración ----------
-def obtener_secreto(nombre, defecto=None):
+# ---------------------------------------------------------------------------
+# Llamadas a cada API (todas devuelven un generador de texto en streaming)
+# ---------------------------------------------------------------------------
+def stream_gemini(api_key, modelo, historial, system, temperatura):
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+    contenido = [
+        types.Content(
+            role="user" if m["role"] == "user" else "model",
+            parts=[types.Part(text=m["content"])],
+        )
+        for m in historial
+    ]
+    config = types.GenerateContentConfig(
+        system_instruction=system, temperature=temperatura
+    )
+    for chunk in client.models.generate_content_stream(
+        model=modelo, contents=contenido, config=config
+    ):
+        if chunk.text:
+            yield chunk.text
+
+
+def stream_openai(api_key, modelo, historial, system, temperatura):
+    from openai import OpenAI
+
+    client = OpenAI(api_key=api_key)
+    mensajes = [{"role": "system", "content": system}] + historial
+    stream = client.chat.completions.create(
+        model=modelo, messages=mensajes, temperature=temperatura, stream=True
+    )
+    for evento in stream:
+        if evento.choices and evento.choices[0].delta.content:
+            yield evento.choices[0].delta.content
+
+
+def stream_anthropic(api_key, modelo, historial, system, temperatura):
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key)
+    with client.messages.stream(
+        model=modelo,
+        max_tokens=2048,
+        system=system,
+        messages=historial,
+        temperature=temperatura,
+    ) as stream:
+        for texto in stream.text_stream:
+            yield texto
+
+
+FUNCIONES = {
+    "Gemini (Google)": stream_gemini,
+    "OpenAI (ChatGPT)": stream_openai,
+    "Anthropic (Claude)": stream_anthropic,
+}
+
+
+# ---------------------------------------------------------------------------
+# Utilidades
+# ---------------------------------------------------------------------------
+def obtener_api_key(proveedor, escrita_en_sidebar):
+    """Prioridad: lo escrito en la barra lateral > st.secrets > variable de entorno."""
+    if escrita_en_sidebar:
+        return escrita_en_sidebar
+    cfg = PROVEEDORES[proveedor]
     try:
-        return st.secrets[nombre]
+        if cfg["secret"] in st.secrets:
+            return st.secrets[cfg["secret"]]
     except Exception:
-        return defecto
+        pass
+    return os.getenv(cfg["env"], "")
 
 
-MODELO = obtener_secreto("MODELO", "gemini-3.5-flash-lite")
-API_KEY = obtener_secreto("GEMINI_API_KEY")
+def conversacion_a_texto(mensajes):
+    lineas = []
+    for m in mensajes:
+        quien = "Tú" if m["role"] == "user" else "IA"
+        lineas.append(f"{quien}:\n{m['content']}\n")
+    return "\n".join(lineas)
 
-if not API_KEY:
-    st.error(
-        "Falta la clave GEMINI_API_KEY. Agrégala en .streamlit/secrets.toml "
-        "(local) o en Settings → Secrets (Streamlit Cloud)."
+
+def mensaje_de_error(e):
+    texto = str(e)
+    bajo = texto.lower()
+    if any(p in bajo for p in ("api key", "api_key", "authentication", "unauthorized", "401", "permission")):
+        return "La API key parece inválida o no tiene permisos. Revísala en la barra lateral."
+    if any(p in bajo for p in ("quota", "rate limit", "429", "resource_exhausted")):
+        return "Se alcanzó el límite de uso (cuota) de esta API. Espera un poco o prueba otro proveedor."
+    if isinstance(e, ModuleNotFoundError):
+        return f"Falta instalar una librería: {e}. Ejecuta `pip install -r requirements.txt`."
+    if any(p in bajo for p in ("connection", "timeout", "network", "getaddrinfo")):
+        return "No se pudo conectar. Revisa tu conexión a internet."
+    return f"Ocurrió un error: {texto}"
+
+
+# ---------------------------------------------------------------------------
+# Estado
+# ---------------------------------------------------------------------------
+if "mensajes" not in st.session_state:
+    st.session_state.mensajes = []
+
+# ---------------------------------------------------------------------------
+# Barra lateral
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    st.subheader("Lo que platicaste conmigo...")
+
+    if st.button("Nueva conversación", icon=":material/add:", use_container_width=True):
+        st.session_state.mensajes = []
+        st.rerun()
+
+    if st.session_state.mensajes:
+        st.download_button(
+            "💾 Descargar conversación",
+            data=conversacion_a_texto(st.session_state.mensajes),
+            file_name=f"conversacion_{datetime.now():%Y%m%d_%H%M}.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+
+    st.divider()
+    st.markdown("**⚙️ Configuración**")
+
+    proveedor = st.selectbox("API a usar", list(PROVEEDORES.keys()))
+    cfg = PROVEEDORES[proveedor]
+
+    modelo_lista = st.selectbox("Modelo", cfg["modelos"])
+    modelo_custom = st.text_input(
+        "Otro modelo (opcional)",
+        placeholder="Escribe un nombre de modelo para usarlo en lugar del de la lista",
     )
-    st.stop()
+    modelo = modelo_custom.strip() or modelo_lista
 
-
-@st.cache_resource
-def obtener_cliente(api_key):
-    return genai.Client(api_key=api_key)
-
-
-client = obtener_cliente(API_KEY)
-
-
-# ---------- Conversaciones ----------
-def nueva_conversacion():
-    chat_id = str(uuid.uuid4())
-    st.session_state.chats[chat_id] = {"titulo": "Nueva conversación", "messages": []}
-    st.session_state.chat_actual = chat_id
-
-
-def seleccionar(chat_id):
-    st.session_state.chat_actual = chat_id
-
-
-def eliminar(chat_id):
-    st.session_state.chats.pop(chat_id, None)
-    if not st.session_state.chats:
-        nueva_conversacion()
-    elif st.session_state.chat_actual == chat_id:
-        st.session_state.chat_actual = list(st.session_state.chats.keys())[-1]
-
-
-def borrar_todo():
-    st.session_state.chats = {}
-    nueva_conversacion()
-
-
-# ---------- Cargar el historial guardado en ESTE navegador ----------
-if "chats" not in st.session_state:
-    guardado = streamlit_js_eval(
-        js_expressions=f"localStorage.getItem('{LS_KEY}') || ''",
-        key="cargar_historial",
+    key_sidebar = st.text_input(
+        f"API key de {proveedor.split(' ')[0]}",
+        type="password",
+        help="Si la dejas vacía se busca en .streamlit/secrets.toml o en variables de entorno.",
     )
-    if guardado is None:  # el navegador todavía no respondió
-        st.info("Cargando tus conversaciones…")
+    api_key = obtener_api_key(proveedor, key_sidebar)
+
+    temperatura = st.slider("Temperatura (creatividad)", 0.0, 1.0, 0.7, 0.05)
+    system_prompt = st.text_area("Instrucciones del sistema", SYSTEM_POR_DEFECTO, height=140)
+
+# ---------------------------------------------------------------------------
+# Chat
+# ---------------------------------------------------------------------------
+st.title("Estuardo Meza Sabe todo pregunta lo que quieras.....")
+st.caption(f"Usando **{proveedor}** · modelo `{modelo}`")
+
+for m in st.session_state.mensajes:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
+
+pregunta = st.chat_input("Escribe tu mensaje...")
+
+if pregunta:
+    if not api_key:
+        st.warning(f"Falta la API key de {proveedor}. Escríbela en la barra lateral.")
         st.stop()
 
-    chats, actual = {}, None
-    try:
-        if guardado:
-            datos = json.loads(guardado)
-            chats = datos.get("chats", {})
-            actual = datos.get("actual")
-    except Exception:
-        chats = {}
-
-    st.session_state.chats = chats
-    if chats:
-        st.session_state.chat_actual = (
-            actual if actual in chats else list(chats.keys())[-1]
-        )
-    else:
-        nueva_conversacion()
-
-
-def guardar_historial():
-    """Guarda todo en el localStorage del navegador de quien usa la app."""
-    datos = json.dumps(
-        {
-            "chats": st.session_state.chats,
-            "actual": st.session_state.chat_actual,
-        },
-        ensure_ascii=False,
-    )
-    huella = hashlib.md5(datos.encode("utf-8")).hexdigest()
-    streamlit_js_eval(
-        js_expressions=f"(localStorage.setItem('{LS_KEY}', {json.dumps(datos)}), 'ok')",
-        key=f"guardar_{huella}",
-    )
-
-
-# ---------- Barra lateral tipo Gemini ----------
-with st.sidebar:
-    st.markdown("### Lo que platicaste conmigo...")
-    st.button(
-        "➕ Nueva conversación",
-        use_container_width=True,
-        on_click=nueva_conversacion,
-    )
-    st.markdown("##### Recientes")
-    for chat_id in reversed(list(st.session_state.chats.keys())):
-        chat_item = st.session_state.chats[chat_id]
-        activo = chat_id == st.session_state.chat_actual
-        col_titulo, col_borrar = st.columns([5, 1])
-        col_titulo.button(
-            chat_item["titulo"],
-            key=f"sel_{chat_id}",
-            use_container_width=True,
-            type="primary" if activo else "secondary",
-            on_click=seleccionar,
-            args=(chat_id,),
-        )
-        col_borrar.button(
-            "🗑️",
-            key=f"del_{chat_id}",
-            help="Eliminar conversación",
-            on_click=eliminar,
-            args=(chat_id,),
-        )
-    st.divider()
-    st.button(
-        "Borrar todo el historial",
-        use_container_width=True,
-        on_click=borrar_todo,
-    )
-    st.caption("Tus conversaciones se guardan solo en este navegador.")
-
-# ---------- Conversación actual ----------
-chat = st.session_state.chats[st.session_state.chat_actual]
-
-st.title("Estuardo Meza Sabe todo pregunta lo que quieras.....")
-
-for i, message in enumerate(chat["messages"]):
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-        if message["role"] == "assistant":
-            st.download_button(
-                "⬇️ Descargar respuesta",
-                message["content"],
-                file_name=f"respuesta_{i}.txt",
-                key=f"descarga_{st.session_state.chat_actual}_{i}",
-            )
-
-if prompt := st.chat_input("Escribe el mensaje que deseas preguntar"):
+    st.session_state.mensajes.append({"role": "user", "content": pregunta})
     with st.chat_message("user"):
-        st.markdown(prompt)
-    chat["messages"].append({"role": "user", "content": prompt})
-
-    # El título de la conversación sale del primer mensaje
-    if len(chat["messages"]) == 1:
-        chat["titulo"] = prompt[:28] + ("…" if len(prompt) > 28 else "")
-
-    # Gemini usa "model" en lugar de "assistant"
-    historial = [
-        {
-            "role": "model" if m["role"] == "assistant" else "user",
-            "parts": [{"text": m["content"]}],
-        }
-        for m in chat["messages"]
-    ]
+        st.markdown(pregunta)
 
     with st.chat_message("assistant"):
-        with st.spinner("Pensando..."):
-            try:
-                respuesta = client.models.generate_content(
-                    model=MODELO,
-                    contents=historial,
+        try:
+            with st.spinner("Pensando..."):
+                generador = FUNCIONES[proveedor](
+                    api_key,
+                    modelo,
+                    st.session_state.mensajes,
+                    system_prompt,
+                    temperatura,
                 )
-                respuesta_ia = respuesta.text or "(La IA no devolvió texto)"
-            except Exception as e:
-                respuesta_ia = f"Error al conectar con Gemini: {e}"
+                # Se toma el primer fragmento dentro del spinner para que
+                # desaparezca en cuanto empieza a llegar texto.
+                primero = next(generador, "")
 
-    chat["messages"].append({"role": "assistant", "content": respuesta_ia})
-    st.rerun()
+            def _todo():
+                yield primero
+                yield from generador
 
-# Al final de cada ejecución: guardar el historial en el navegador
-guardar_historial()
+            respuesta = st.write_stream(_todo())
+            st.session_state.mensajes.append({"role": "assistant", "content": respuesta})
+        except Exception as e:
+            st.error(mensaje_de_error(e))
+            # Se quita la pregunta fallida para poder reintentar sin duplicarla
+            st.session_state.mensajes.pop()
+
+# Descarga de la última respuesta (como antes)
+if st.session_state.mensajes and st.session_state.mensajes[-1]["role"] == "assistant":
+    ultima = st.session_state.mensajes[-1]["content"]
+    with st.expander("📄 Última respuesta de la IA"):
+        st.markdown(ultima)
+        st.download_button(
+            "Descargar respuesta_ia.txt",
+            data=ultima,
+            file_name="respuesta_ia.txt",
+            mime="text/plain",
+        )
