@@ -1,3 +1,4 @@
-streamlit
-google-genai
-streamlit-js-eval
+   streamlit
+   google-genai
+   openai
+   anthropic
