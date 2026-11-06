@@ -1,10 +1,46 @@
+import json
 import os
+import re
 import time
+import uuid
 from datetime import datetime
+from pathlib import Path
 
 import streamlit as st
 
 st.set_page_config(page_title="Estuardo Meza Sabe todo", page_icon="🤖", layout="centered")
+
+# ---------------------------------------------------------------------------
+# Guardado del historial (un archivo JSON por conversación)
+# ---------------------------------------------------------------------------
+CARPETA = Path("conversaciones")
+CARPETA.mkdir(exist_ok=True)
+
+
+def nuevo_id():
+    return uuid.uuid4().hex
+
+
+def id_valido(cid):
+    return bool(re.fullmatch(r"[0-9a-f]{32}", cid or ""))
+
+
+def guardar_conversacion(cid, mensajes):
+    if not id_valido(cid):
+        return
+    tmp = CARPETA / f"{cid}.tmp"
+    tmp.write_text(json.dumps(mensajes, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(CARPETA / f"{cid}.json")
+
+
+def cargar_conversacion(cid):
+    if not id_valido(cid):
+        return []
+    try:
+        return json.loads((CARPETA / f"{cid}.json").read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
 
 # ---------------------------------------------------------------------------
 # Configuración de proveedores
@@ -211,10 +247,15 @@ def abrir_stream_resiliente(proveedor, modelo, historial, system, temperatura, r
 
 
 # ---------------------------------------------------------------------------
-# Estado
+# Estado (recupera la conversación desde el ID de la URL: ?c=...)
 # ---------------------------------------------------------------------------
-if "mensajes" not in st.session_state:
-    st.session_state.mensajes = []
+if "cid" not in st.session_state:
+    cid = st.query_params.get("c", "")
+    if not id_valido(cid):
+        cid = nuevo_id()
+    st.query_params["c"] = cid
+    st.session_state.cid = cid
+    st.session_state.mensajes = cargar_conversacion(cid)
 
 prov_actual = st.session_state.get("proveedor", PRIMER_PROVEEDOR)
 
@@ -225,6 +266,8 @@ with st.sidebar:
     st.subheader("Lo que platicaste conmigo...")
 
     if st.button("Nueva conversación", icon=":material/add:", use_container_width=True):
+        st.session_state.cid = nuevo_id()
+        st.query_params["c"] = st.session_state.cid
         st.session_state.mensajes = []
         st.rerun()
 
@@ -343,6 +386,8 @@ if pregunta:
                 st.session_state.mensajes.append(
                     {"role": "assistant", "content": respuesta, "nota": nota}
                 )
+                # Guardar el historial en disco después de cada respuesta
+                guardar_conversacion(st.session_state.cid, st.session_state.mensajes)
             except Exception as e:
                 estado.empty()
                 st.error(mensaje_de_error(e))
