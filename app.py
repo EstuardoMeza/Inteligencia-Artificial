@@ -375,7 +375,18 @@ with caja_chat:
 
 # 2) Cuadro de mensaje
 with st.container():
-    pregunta = st.chat_input("Escribe tu mensaje...")
+    pregunta = st.chat_input("Escribe tu mensaje...") or st.session_state.pop("reintentar", None)
+
+# Si la última pregunta se quedó sin respuesta, ofrecer reintentar
+if (
+    st.session_state.mensajes
+    and st.session_state.mensajes[-1]["role"] == "user"
+    and not pregunta
+):
+    st.warning("La última pregunta no recibió respuesta.")
+    if st.button("🔄 Reintentar"):
+        st.session_state.reintentar = st.session_state.mensajes.pop()["content"]
+        st.rerun()
 
 # 3) Selector de API y modelo, debajo del cuadro de mensaje
 col_api, col_modelo = st.columns(2)
