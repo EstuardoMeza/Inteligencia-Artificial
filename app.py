@@ -10,7 +10,7 @@ st.set_page_config(page_title="Estuardo Meza Sabe todo", page_icon="🤖", layou
 # ---------------------------------------------------------------------------
 PROVEEDORES = {
     "Gemini (Google)": {
-        "modelos": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
+        "modelos": ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-4-argon"],
         "env": "GEMINI_API_KEY",
     },
     "Groq": {
