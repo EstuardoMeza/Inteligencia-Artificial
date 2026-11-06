@@ -1,73 +1,10 @@
-import json
 import os
-import re
 import time
-import uuid
 from datetime import datetime
-from pathlib import Path
 
 import streamlit as st
 
 st.set_page_config(page_title="Estuardo Meza Sabe todo", page_icon="🤖", layout="centered")
-
-# ---------------------------------------------------------------------------
-# Persistencia del historial (archivos JSON, uno por conversación)
-# ---------------------------------------------------------------------------
-CARPETA = Path("conversaciones")
-CARPETA.mkdir(exist_ok=True)
-
-
-def nuevo_id():
-    return uuid.uuid4().hex
-
-
-def id_valido(cid):
-    return bool(re.fullmatch(r"[0-9a-f]{32}", cid or ""))
-
-
-def guardar_conversacion(cid, mensajes):
-    if not id_valido(cid):
-        return
-    ruta = CARPETA / f"{cid}.json"
-    tmp = CARPETA / f"{cid}.tmp"
-    tmp.write_text(json.dumps(mensajes, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(ruta)  # escritura atómica: evita archivos a medias
-
-
-def cargar_conversacion(cid):
-    if not id_valido(cid):
-        return []
-    try:
-        return json.loads((CARPETA / f"{cid}.json").read_text(encoding="utf-8"))
-    except Exception:
-        return []
-
-
-def borrar_conversacion(cid):
-    if id_valido(cid):
-        (CARPETA / f"{cid}.json").unlink(missing_ok=True)
-
-
-def listar_conversaciones(limite=15):
-    """Devuelve [(cid, titulo)] de la más reciente a la más antigua."""
-    archivos = sorted(CARPETA.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    resultado = []
-    for ruta in archivos[:limite]:
-        msgs = cargar_conversacion(ruta.stem)
-        if not msgs:
-            continue
-        primero = next((m["content"] for m in msgs if m["role"] == "user"), "(vacía)")
-        titulo = primero.strip().replace("\n", " ")
-        titulo = titulo[:32] + "…" if len(titulo) > 32 else titulo
-        resultado.append((ruta.stem, titulo))
-    return resultado
-
-
-def abrir_conversacion(cid):
-    st.session_state.cid = cid
-    st.session_state.mensajes = cargar_conversacion(cid)
-    st.query_params["c"] = cid
-
 
 # ---------------------------------------------------------------------------
 # Configuración de proveedores
@@ -274,13 +211,10 @@ def abrir_stream_resiliente(proveedor, modelo, historial, system, temperatura, r
 
 
 # ---------------------------------------------------------------------------
-# Estado (recupera la conversación desde el ID de la URL: ?c=...)
+# Estado
 # ---------------------------------------------------------------------------
-if "cid" not in st.session_state:
-    cid = st.query_params.get("c", "")
-    if not id_valido(cid):
-        cid = nuevo_id()
-    abrir_conversacion(cid)
+if "mensajes" not in st.session_state:
+    st.session_state.mensajes = []
 
 prov_actual = st.session_state.get("proveedor", PRIMER_PROVEEDOR)
 
@@ -291,31 +225,8 @@ with st.sidebar:
     st.subheader("Lo que platicaste conmigo...")
 
     if st.button("Nueva conversación", icon=":material/add:", use_container_width=True):
-        abrir_conversacion(nuevo_id())
+        st.session_state.mensajes = []
         st.rerun()
-
-    # Lista de conversaciones guardadas
-    guardadas = listar_conversaciones()
-    if guardadas:
-        st.caption("Conversaciones anteriores")
-        for cid_g, titulo in guardadas:
-            actual = cid_g == st.session_state.cid
-            col_a, col_b = st.columns([5, 1])
-            with col_a:
-                if st.button(
-                    ("▶ " if actual else "") + titulo,
-                    key=f"abrir_{cid_g}",
-                    use_container_width=True,
-                    disabled=actual,
-                ):
-                    abrir_conversacion(cid_g)
-                    st.rerun()
-            with col_b:
-                if st.button("🗑", key=f"borrar_{cid_g}", help="Borrar esta conversación"):
-                    borrar_conversacion(cid_g)
-                    if actual:
-                        abrir_conversacion(nuevo_id())
-                    st.rerun()
 
     if st.session_state.mensajes:
         st.download_button(
@@ -373,20 +284,9 @@ with caja_chat:
             if m.get("nota"):
                 st.caption(m["nota"])
 
-# 2) Cuadro de mensaje
+# 2) Cuadro de mensaje (dentro de un contenedor para que quede en su lugar)
 with st.container():
-    pregunta = st.chat_input("Escribe tu mensaje...") or st.session_state.pop("reintentar", None)
-
-# Si la última pregunta se quedó sin respuesta, ofrecer reintentar
-if (
-    st.session_state.mensajes
-    and st.session_state.mensajes[-1]["role"] == "user"
-    and not pregunta
-):
-    st.warning("La última pregunta no recibió respuesta.")
-    if st.button("🔄 Reintentar"):
-        st.session_state.reintentar = st.session_state.mensajes.pop()["content"]
-        st.rerun()
+    pregunta = st.chat_input("Escribe tu mensaje...")
 
 # 3) Selector de API y modelo, debajo del cuadro de mensaje
 col_api, col_modelo = st.columns(2)
@@ -443,8 +343,6 @@ if pregunta:
                 st.session_state.mensajes.append(
                     {"role": "assistant", "content": respuesta, "nota": nota}
                 )
-                # 💾 Guardar en disco después de cada respuesta
-                guardar_conversacion(st.session_state.cid, st.session_state.mensajes)
             except Exception as e:
                 estado.empty()
                 st.error(mensaje_de_error(e))
