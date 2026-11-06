@@ -8,96 +8,100 @@ from pathlib import Path
 
 import streamlit as st
 
+# ---------------------------------------------------------------------------
+# Configuración de la página y Favicon personalizado
+# ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Estuardo Meza · Assistant",
-    page_icon="🤖",
+    page_title="Estuardo Meza · IA Asistente",
+    page_icon=".streamlit/favicon_io/favicon.ico",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # ---------------------------------------------------------------------------
-# Estilos CSS Personalizados para UI Moderna
+# Estilos CSS Avanzados (Diseño Inspirado en Interfaces Modernas / ChatGPT)
 # ---------------------------------------------------------------------------
 st.markdown("""
 <style>
-    /* Estilo del fondo global y tipografía */
+    /* Fondo global de la aplicación */
     .stApp {
-        background-color: #0d1117;
+        background-color: #121214;
+        color: #e1e1e6;
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
-    /* Fondo y estilo de la barra lateral */
+    /* Barra lateral */
     section[data-testid="stSidebar"] {
-        background-color: #161b22;
-        border-right: 1px solid #30363d;
+        background-color: #18181b;
+        border-right: 1px: solid #27272a;
     }
 
-    /* Título principal con gradiente */
-    .main-title {
-        font-size: 2.2rem;
-        font-weight: 800;
-        background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0.2rem;
-    }
-
-    .sub-title {
-        color: #8b949e;
-        font-size: 0.95rem;
+    /* Encabezado Principal */
+    .main-header {
+        padding: 1rem 0 0.5rem 0;
+        border-bottom: 1px solid #27272a;
         margin-bottom: 1.5rem;
     }
+    .main-title {
+        font-size: 1.8rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #00f2fe 0%, #4facfe 50%, #d946ef 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .sub-title {
+        color: #a1a1aa;
+        font-size: 0.88rem;
+    }
 
-    /* Contenedor principal de mensajes */
+    /* Contenedor del Chat */
     div[data-testid="stVerticalBlockBorderWrapper"] {
-        border-radius: 14px !important;
-        border: 1px solid #30363d !important;
-        background-color: #161b22 !important;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.25);
-    }
-
-    /* Estilo de los globos de mensaje del chat */
-    .stChatMessage {
-        background-color: #21262d !important;
-        border: 1px solid #30363d;
         border-radius: 12px !important;
+        border: 1px solid #27272a !important;
+        background-color: #18181b !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    /* Burbujas de mensajes */
+    .stChatMessage {
+        background-color: #202024 !important;
+        border: 1px solid #27272a;
+        border-radius: 10px !important;
         padding: 12px 16px !important;
-        margin-bottom: 12px !important;
-        color: #c9d1d9 !important;
+        margin-bottom: 10px !important;
     }
 
-    /* Mensajes del usuario resaltados */
-    div[data-testid="stChatMessage"]:has(span[aria-label="user"]) {
-        background-color: #1f242d !important;
-        border-left: 4px solid #38bdf8 !important;
-    }
-
-    /* Botón principal (Nueva conversación) */
+    /* Botones personalizados estilo IA */
     div.stButton > button {
-        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
         color: white;
         border: none;
         border-radius: 8px;
         font-weight: 600;
-        transition: all 0.2s ease;
+        padding: 0.5rem 1rem;
+        transition: all 0.3s ease;
     }
     div.stButton > button:hover {
-        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        background: linear-gradient(135deg, #0ea5e9 0%, #3b82f6 100%);
+        box-shadow: 0 0 15px rgba(2, 132, 199, 0.4);
     }
 
-    /* Input del chat */
+    /* Cuadro de entrada (Chat Input) */
     div[data-testid="stChatInput"] input {
+        background-color: #202024 !important;
+        border: 1px solid #3f3f46 !important;
         border-radius: 10px !important;
-        border: 1px solid #30363d !important;
-        background-color: #161b22 !important;
-        color: white !important;
+        color: #fff !important;
+    }
+    div[data-testid="stChatInput"] input:focus {
+        border-color: #00f2fe !important;
+        box-shadow: 0 0 0 1px #00f2fe !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# Guardado del historial
+# Guardado del historial (un archivo JSON por conversación)
 # ---------------------------------------------------------------------------
 CARPETA = Path("conversaciones")
 CARPETA.mkdir(exist_ok=True)
@@ -144,7 +148,7 @@ SYSTEM_POR_DEFECTO = (
 )
 
 # ---------------------------------------------------------------------------
-# Llamadas API
+# Llamadas a cada API
 # ---------------------------------------------------------------------------
 def stream_gemini(api_key, modelo, historial, system, temperatura):
     from google import genai
@@ -189,7 +193,7 @@ FUNCIONES = {
 }
 
 # ---------------------------------------------------------------------------
-# Utilidades & Resistencia
+# Utilidades
 # ---------------------------------------------------------------------------
 def key_guardada(proveedor):
     nombre = PROVEEDORES[proveedor]["env"]
@@ -228,6 +232,9 @@ def mensaje_de_error(e):
         return "Ese modelo no existe o ya no está disponible. Elige otro de la lista."
     return f"Ocurrió un error: {texto}"
 
+# ---------------------------------------------------------------------------
+# Resistencia y reintentos
+# ---------------------------------------------------------------------------
 def _contiene(e, palabras):
     bajo = str(e).lower()
     return any(p in bajo for p in palabras)
@@ -282,7 +289,7 @@ def abrir_stream_resiliente(proveedor, modelo, historial, system, temperatura, r
                 primero = next(gen, "")
                 nota = None
                 if (prov, mod) != (proveedor, modelo):
-                    nota = f"⚠️ `{modelo}` no respondió. Respondió `{prov} · {mod}`."
+                    nota = f"⚠️ `{proveedor} · {modelo}` no respondió. Contestó `{prov} · {mod}`."
                 return gen, primero, nota
             except Exception as e:
                 ultimo_error = e
@@ -303,7 +310,7 @@ def abrir_stream_resiliente(proveedor, modelo, historial, system, temperatura, r
     raise ultimo_error or RuntimeError("No hay modelos disponibles.")
 
 # ---------------------------------------------------------------------------
-# Estado de la sesión
+# Estado de la Sesión
 # ---------------------------------------------------------------------------
 if "cid" not in st.session_state:
     cid = st.query_params.get("c", "")
@@ -313,8 +320,10 @@ if "cid" not in st.session_state:
     st.session_state.cid = cid
     st.session_state.mensajes = cargar_conversacion(cid)
 
+prov_actual = st.session_state.get("proveedor", PRIMER_PROVEEDOR)
+
 # ---------------------------------------------------------------------------
-# Barra lateral (Sidebar reorganizada)
+# Barra Lateral Estilizada
 # ---------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 💬 Historial")
@@ -326,48 +335,53 @@ with st.sidebar:
 
     if st.session_state.mensajes:
         st.download_button(
-            "💾 Descargar chat",
+            "💾 Descargar conversación",
             data=conversacion_a_texto(st.session_state.mensajes),
-            file_name=f"chat_{datetime.now():%Y%m%d_%H%M}.txt",
+            file_name=f"conversacion_{datetime.now():%Y%m%d_%H%M}.txt",
             mime="text/plain",
             use_container_width=True,
         )
 
     st.divider()
+    st.markdown("### ⚙️ Configuración & IA")
 
-    # Controles de Modelo colocados en la barra lateral
-    st.markdown("### 🤖 Modelo de IA")
-    proveedor = st.selectbox("Proveedor", list(PROVEEDORES.keys()), key="proveedor")
-    modelo_lista = st.selectbox("Modelo base", PROVEEDORES[proveedor]["modelos"], key=f"modelo_{proveedor}")
-    modelo_custom = st.text_input("Otro modelo (opcional)", placeholder="Ej. gemini-1.5-pro")
+    proveedor = st.selectbox("API a usar", list(PROVEEDORES.keys()), key="proveedor")
+    modelo_lista = st.selectbox("Modelo", PROVEEDORES[proveedor]["modelos"], key=f"modelo_{proveedor}")
+    modelo_custom = st.text_input("Otro modelo (opcional)", placeholder="Nombre de modelo personalizado")
     modelo = modelo_custom.strip() or modelo_lista
 
-    st.divider()
-
-    st.markdown("### ⚙️ Ajustes")
     temperatura = st.slider("Creatividad (Temperatura)", 0.0, 1.0, 0.7, 0.05)
-    system_prompt = st.text_area("Instrucciones de la IA", SYSTEM_POR_DEFECTO, height=120)
-    resistente = st.checkbox("🛡️ Modo resistente", value=True)
+    system_prompt = st.text_area("Instrucciones del sistema", SYSTEM_POR_DEFECTO, height=110)
 
-    with st.expander("🔑 Clave API personal"):
+    resistente = st.checkbox(
+        "🛡️ Modo resistente",
+        value=True,
+        help="Reintenta automáticamente y cambia de modelo/IA si hay saturación.",
+    )
+
+    with st.expander("🔑 API Key Personal"):
         st.text_input(
-            f"API Key ({proveedor.split(' ')[0]})",
+            f"Key de {prov_actual.split(' ')[0]}",
             type="password",
-            key=f"key_{proveedor}",
+            key=f"key_{prov_actual}",
         )
 
 # ---------------------------------------------------------------------------
-# Zona Principal (Chat Area)
+# Vista Principal (Área de Chat Limpia)
 # ---------------------------------------------------------------------------
-st.markdown('<div class="main-title">Estuardo Meza · IA Assistant</div>', unsafe_allow_html=True)
-st.markdown(f'<div class="sub-title">Conectado a <b>{proveedor}</b> mediante <code>{modelo}</code></div>', unsafe_allow_html=True)
+st.markdown("""
+    <div class="main-header">
+        <div class="main-title">Estuardo Meza · Asistente IA</div>
+        <div class="sub-title">Pregunta lo que quieras sobre informática, código y más...</div>
+    </div>
+""", unsafe_allow_html=True)
 
 api_key = obtener_api_key(proveedor)
 if not api_key:
-    st.info(f"💡 Selecciona o configura una API Key para comenzar a chatear.")
+    st.warning(f"⚠️ {proveedor} no tiene API key configurada. Selecciona otra API o escribe tu key en la barra lateral (🔑).")
 
-# Contenedor con barra de desplazamiento para los mensajes
-caja_chat = st.container(height=520, border=True)
+# Contenedor principal con scroll independiente y bordes estéticos
+caja_chat = st.container(height=480, border=True)
 with caja_chat:
     for m in st.session_state.mensajes:
         with st.chat_message(m["role"]):
@@ -375,14 +389,16 @@ with caja_chat:
             if m.get("nota"):
                 st.caption(m["nota"])
 
-pregunta = st.chat_input("Escribe tu pregunta de informática...")
+# Caja de entrada de texto para el chat
+with st.container():
+    pregunta = st.chat_input("Escribe tu mensaje...")
 
 # ---------------------------------------------------------------------------
-# Procesar Respuesta
+# Procesamiento de la Pregunta
 # ---------------------------------------------------------------------------
 if pregunta:
     if not api_key:
-        st.warning(f"Falta la API key para {proveedor}.")
+        st.warning(f"Falta la API key de {proveedor}.")
         st.stop()
 
     st.session_state.mensajes.append({"role": "user", "content": pregunta})
@@ -393,7 +409,7 @@ if pregunta:
         with st.chat_message("assistant"):
             estado = st.empty()
             try:
-                with st.spinner("Generando respuesta..."):
+                with st.spinner("Pensando..."):
                     generador, primero, nota = abrir_stream_resiliente(
                         proveedor,
                         modelo,
@@ -420,3 +436,15 @@ if pregunta:
                 estado.empty()
                 st.error(mensaje_de_error(e))
                 st.session_state.mensajes.pop()
+
+# Descarga rápida de la última respuesta
+if st.session_state.mensajes and st.session_state.mensajes[-1]["role"] == "assistant":
+    ultima = st.session_state.mensajes[-1]["content"]
+    with st.expander("📄 Exportar última respuesta"):
+        st.markdown(ultima)
+        st.download_button(
+            "Descargar respuesta_ia.txt",
+            data=ultima,
+            file_name="respuesta_ia.txt",
+            mime="text/plain",
+        )
