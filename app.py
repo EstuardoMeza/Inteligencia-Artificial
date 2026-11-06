@@ -132,7 +132,7 @@ def cargar_conversacion(cid):
 # ---------------------------------------------------------------------------
 PROVEEDORES = {
     "Gemini (Google)": {
-        "modelos": ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-4-argon"],
+        "modelos": [ "gemini-3.5-flash-lite"],
         "env": "GEMINI_API_KEY",
     },
     "Groq": {
