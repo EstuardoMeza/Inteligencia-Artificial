@@ -70,7 +70,9 @@ def stream_gemini(api_key, modelo, historial, system, temperatura):
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        api_key=api_key, http_options=types.HttpOptions(timeout=15000)
+    )
     contenido = [
         types.Content(
             role="user" if m["role"] == "user" else "model",
@@ -91,7 +93,7 @@ def stream_gemini(api_key, modelo, historial, system, temperatura):
 def stream_groq(api_key, modelo, historial, system, temperatura):
     from groq import Groq
 
-    client = Groq(api_key=api_key)
+    client = Groq(api_key=api_key, timeout=15.0, max_retries=0)
     # Solo role y content: Groq rechaza campos extra (como "nota")
     mensajes = [{"role": "system", "content": system}] + [
         {"role": m["role"], "content": m["content"]} for m in historial
