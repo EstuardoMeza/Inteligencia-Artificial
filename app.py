@@ -13,9 +13,9 @@ PROVEEDORES = {
         "modelos": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"],
         "env": "GEMINI_API_KEY",
     },
-    "OpenAI (ChatGPT)": {
-        "modelos": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
-        "env": "OPENAI_API_KEY",
+    "Groq": {
+        "modelos": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+        "env": "GROQ_API_KEY",
     },
 }
 PRIMER_PROVEEDOR = list(PROVEEDORES.keys())[0]
@@ -51,10 +51,10 @@ def stream_gemini(api_key, modelo, historial, system, temperatura):
             yield chunk.text
 
 
-def stream_openai(api_key, modelo, historial, system, temperatura):
-    from openai import OpenAI
+def stream_groq(api_key, modelo, historial, system, temperatura):
+    from groq import Groq
 
-    client = OpenAI(api_key=api_key)
+    client = Groq(api_key=api_key)
     mensajes = [{"role": "system", "content": system}] + historial
     stream = client.chat.completions.create(
         model=modelo, messages=mensajes, temperature=temperatura, stream=True
@@ -66,7 +66,7 @@ def stream_openai(api_key, modelo, historial, system, temperatura):
 
 FUNCIONES = {
     "Gemini (Google)": stream_gemini,
-    "OpenAI (ChatGPT)": stream_openai,
+    "Groq": stream_groq,
 }
 
 
