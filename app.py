@@ -17,10 +17,6 @@ PROVEEDORES = {
         "modelos": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
         "env": "OPENAI_API_KEY",
     },
-    "Anthropic (Claude)": {
-        "modelos": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
-        "env": "ANTHROPIC_API_KEY",
-    },
 }
 PRIMER_PROVEEDOR = list(PROVEEDORES.keys())[0]
 
@@ -68,25 +64,9 @@ def stream_openai(api_key, modelo, historial, system, temperatura):
             yield evento.choices[0].delta.content
 
 
-def stream_anthropic(api_key, modelo, historial, system, temperatura):
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=api_key)
-    with client.messages.stream(
-        model=modelo,
-        max_tokens=2048,
-        system=system,
-        messages=historial,
-        temperature=temperatura,
-    ) as stream:
-        for texto in stream.text_stream:
-            yield texto
-
-
 FUNCIONES = {
     "Gemini (Google)": stream_gemini,
     "OpenAI (ChatGPT)": stream_openai,
-    "Anthropic (Claude)": stream_anthropic,
 }
 
 
