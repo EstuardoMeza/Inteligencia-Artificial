@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime
 
 import streamlit as st
@@ -55,7 +56,10 @@ def stream_groq(api_key, modelo, historial, system, temperatura):
     from groq import Groq
 
     client = Groq(api_key=api_key)
-    mensajes = [{"role": "system", "content": system}] + historial
+    # Solo role y content: Groq rechaza campos extra (como "nota")
+    mensajes = [{"role": "system", "content": system}] + [
+        {"role": m["role"], "content": m["content"]} for m in historial
+    ]
     stream = client.chat.completions.create(
         model=modelo, messages=mensajes, temperature=temperatura, stream=True
     )
@@ -109,7 +113,101 @@ def mensaje_de_error(e):
         return f"Falta instalar una librería: {e}. Revisa que requirements.txt la incluya."
     if any(p in bajo for p in ("connection", "timeout", "network", "getaddrinfo")):
         return "No se pudo conectar. Revisa tu conexión a internet."
+    if any(p in bajo for p in ("503", "unavailable", "high demand", "overloaded")):
+        return "Todos los modelos disponibles están saturados en este momento. Intenta de nuevo en un minuto."
+    if any(p in bajo for p in ("404", "not_found", "not found", "no longer available", "does not exist")):
+        return "Ese modelo no existe o ya no está disponible. Elige otro de la lista."
     return f"Ocurrió un error: {texto}"
+
+
+# ---------------------------------------------------------------------------
+# Resistencia: reintentos + cambio automático de modelo / proveedor
+# ---------------------------------------------------------------------------
+def _contiene(e, palabras):
+    bajo = str(e).lower()
+    return any(p in bajo for p in palabras)
+
+
+def es_error_auth(e):
+    return _contiene(e, ("api key", "api_key", "authentication", "unauthorized", "401", "403", "permission"))
+
+
+def es_error_cuota(e):
+    return _contiene(e, ("quota", "rate limit", "429", "resource_exhausted", "credit"))
+
+
+def es_error_temporal(e):
+    return _contiene(
+        e,
+        ("503", "502", "504", "500", "unavailable", "high demand", "overloaded",
+         "timeout", "timed out", "connection", "temporarily", "internal"),
+    )
+
+
+def construir_candidatos(proveedor, modelo):
+    """Orden de intentos: el elegido -> otros modelos del mismo proveedor -> otros proveedores
+    (solo los que tengan API key disponible)."""
+    candidatos, vistos = [], set()
+
+    def agregar(p, m):
+        key = obtener_api_key(p)
+        if key and (p, m) not in vistos:
+            vistos.add((p, m))
+            candidatos.append((p, m, key))
+
+    agregar(proveedor, modelo)
+    for m in PROVEEDORES[proveedor]["modelos"]:
+        agregar(proveedor, m)
+    for p in PROVEEDORES:
+        if p != proveedor:
+            for m in PROVEEDORES[p]["modelos"]:
+                agregar(p, m)
+    return candidatos
+
+
+def abrir_stream_resiliente(proveedor, modelo, historial, system, temperatura, resistente, aviso):
+    """Devuelve (generador, primer_trozo, nota). Reintenta si el modelo está saturado y,
+    si no se recupera, prueba con el siguiente modelo o proveedor."""
+    candidatos = construir_candidatos(proveedor, modelo)
+    if not resistente:
+        candidatos = candidatos[:1]
+
+    ultimo_error = None
+    sin_acceso = set()  # proveedores con la key inválida: no vale la pena seguir con ellos
+
+    for i, (prov, mod, key) in enumerate(candidatos):
+        if prov in sin_acceso:
+            continue
+        intentos = 1 if not resistente else (3 if i == 0 else 2)
+
+        for intento in range(1, intentos + 1):
+            try:
+                gen = FUNCIONES[prov](key, mod, historial, system, temperatura)
+                primero = next(gen, "")
+                nota = None
+                if (prov, mod) != (proveedor, modelo):
+                    nota = (
+                        f"⚠️ {proveedor} · `{modelo}` no respondió, "
+                        f"así que contestó {prov} · `{mod}`."
+                    )
+                return gen, primero, nota
+            except Exception as e:
+                ultimo_error = e
+                if es_error_auth(e):
+                    sin_acceso.add(prov)
+                    break
+                if es_error_cuota(e) or not es_error_temporal(e):
+                    break  # reintentar no ayuda: pasar al siguiente
+                if intento < intentos:
+                    espera = 2 * intento
+                    aviso(f"⏳ `{mod}` está saturado. Reintentando en {espera}s...")
+                    time.sleep(espera)
+
+        siguientes = [c for c in candidatos[i + 1:] if c[0] not in sin_acceso]
+        if siguientes:
+            aviso(f"🔁 Cambiando a `{siguientes[0][1]}`...")
+
+    raise ultimo_error or RuntimeError("No hay modelos disponibles.")
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +247,13 @@ with st.sidebar:
         placeholder="Escribe un nombre de modelo para usarlo en lugar del de la lista",
     )
 
+    resistente = st.checkbox(
+        "🛡️ Modo resistente",
+        value=True,
+        help="Si un modelo está saturado, reintenta y cambia solo a otro modelo u otra IA "
+        "(las que tengan API key configurada).",
+    )
+
     with st.expander("🔑 Usar mi propia API key (opcional)"):
         st.caption(
             "No hace falta. Si el dueño de la app ya la configuró, la IA funciona sola. "
@@ -176,6 +281,8 @@ with caja_chat:
     for m in st.session_state.mensajes:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
+            if m.get("nota"):
+                st.caption(m["nota"])
 
 # 2) Cuadro de mensaje (dentro de un contenedor para que quede en su lugar)
 with st.container():
@@ -212,24 +319,32 @@ if pregunta:
             st.markdown(pregunta)
 
         with st.chat_message("assistant"):
+            estado = st.empty()
             try:
                 with st.spinner("Pensando..."):
-                    generador = FUNCIONES[proveedor](
-                        api_key,
+                    generador, primero, nota = abrir_stream_resiliente(
+                        proveedor,
                         modelo,
                         st.session_state.mensajes,
                         system_prompt,
                         temperatura,
+                        resistente,
+                        lambda texto: estado.caption(texto),
                     )
-                    primero = next(generador, "")
+                estado.empty()
 
                 def _todo():
                     yield primero
                     yield from generador
 
                 respuesta = st.write_stream(_todo())
-                st.session_state.mensajes.append({"role": "assistant", "content": respuesta})
+                if nota:
+                    st.caption(nota)
+                st.session_state.mensajes.append(
+                    {"role": "assistant", "content": respuesta, "nota": nota}
+                )
             except Exception as e:
+                estado.empty()
                 st.error(mensaje_de_error(e))
                 st.session_state.mensajes.pop()
 
